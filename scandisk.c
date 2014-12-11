@@ -40,7 +40,6 @@ int num_of_clust(uint16_t start_cluster, uint8_t *image_buf, struct bpb33* bpb, 
 	while(!is_end_of_file(nxt_clust)){
 		DIRarr[nxt_clust] = 1;
 //		printf("nxt_clust is: %d\n", nxt_clust);
-//		TYPEarr[nxt_clust] = 1;
 		nxt_clust = get_fat_entry(nxt_clust, image_buf, bpb);
 		length++;
 	}
@@ -218,7 +217,7 @@ int file_checker(struct direntry *dirent){
 }
 
 //this fixes when the number of clusters in the fat chain exceeds the expected number of clusters 
-void cluster_chain_long(uint16_t start_cluster, uint8_t *image_buf, struct bpb33* bpb,int* DIRarr, int* FATarr, int* VALIDarr, int* FULLarr, int* TYPEarr, uint32_t expectedNumCluster){
+void cluster_chain_long(uint16_t start_cluster, uint8_t *image_buf, struct bpb33* bpb,int* DIRarr, int* FATarr, int* VALIDarr, int* FULLarr, uint32_t expectedNumCluster){
 //	printf("entered \n");
 	int current_clust = 1;
 	uint16_t prev_clust = start_cluster;
@@ -235,16 +234,13 @@ void cluster_chain_long(uint16_t start_cluster, uint8_t *image_buf, struct bpb33
 	while(!is_end_of_file(get_fat_entry(next_clust, image_buf, bpb))){
 	     uint16_t temp = next_clust;
 	     DIRarr[next_clust] = 0;
-	     TYPEarr[next_clust] = 0;
 	     next_clust = get_fat_entry(next_clust,image_buf, bpb);
 	     set_fat_entry(temp, CLUST_FREE, image_buf, bpb);
 	}
 	set_fat_entry(prev_clust, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
 //	printf("set new eof \n");
-	TYPEarr[prev_clust] = 2;
 	DIRarr[prev_clust] = 0;
 	prev_clust = get_fat_entry(prev_clust, image_buf, bpb);
-	TYPEarr[next_clust] = 0;
 	DIRarr[next_clust] = 0;
 //	printf("freedstuff \n");
 	set_fat_entry(next_clust, CLUST_FREE, image_buf, bpb);
@@ -346,7 +342,7 @@ void create_dirent(struct direntry *dirent, char *filename,
     }
 }
 
-void adoption(struct direntry *dirent, struct bpb33* bpb, uint8_t *image_buf, int i){
+void adoption(struct bpb33* bpb, uint8_t *image_buf, int i, int* DIRarr){
      //create the name of the directory entry
 	num_orphans ++;
 	char name[128];
@@ -355,29 +351,31 @@ void adoption(struct direntry *dirent, struct bpb33* bpb, uint8_t *image_buf, in
 	sprintf(num_str, "%d\n", num_orphans);
 	strcat(name, num_str);
 	strcat(name, ".dat");
+        struct direntry *dirent = (struct direntry*)cluster_to_addr(0, image_buf, bpb);
      //create the directory entry 
 	create_dirent(dirent, name, i, 512, image_buf, bpb);
+	DIRarr[i] = 1;
+        set_fat_entry(i, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
      //map the directory entry to this cluster
 }
 
-
+void badFixer(int* VALIDarr,uint8_t *image_buf, struct bpb33* bpb){
+      int FAT_length =  bpb->bpbSectors - 1 - 9 - 9 - 14;
+      for(int i = 2; i < FAT_length; i++){
+	if (get_fat_entry(i, image_buf, bpb) == CLUST_BAD){
+	    
+	}
+      }
+}
 
 void orphanChecker(int* DIRarr, int* FATarr, uint8_t *image_buf, struct bpb33* bpb){
       int FAT_length =  bpb->bpbSectors - 1 - 9 - 9 - 14;
-  //    uint16_t current_cluster = CLUST_FIRST;
-//      printf("First cluster: %d", current_cluster);
       for(int i = 2; i < FAT_length; i++){
 	   if ((DIRarr[i] == 0) && (is_valid_cluster(i, bpb))){
-	//        printf("Current cluster: %d", current_cluster);
 		//check that entry in the fat
 		if((get_fat_entry(i, image_buf, bpb))!= CLUST_FREE){ //is this how we test that it is free?
 		      printf("FAT entry: %d is an orphan \n", i);
-		if(i == 3){
-//		    printf("arry entry: %d\n", DIRarr[]);
-//		    printf("Fat entry: %d\n", get_fat_entry(i, image_buf, bpb));
-		}
-		//      current_cluster++;
-		      //adoption(dirent, bpb, image_buff, i)
+		      adoption(bpb, image_buf, i, DIRarr);
 		}
 	   }
      }
@@ -385,7 +383,7 @@ void orphanChecker(int* DIRarr, int* FATarr, uint8_t *image_buf, struct bpb33* b
 
 
 
-void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* bpb, int* DIRarr, int* FATarr, int* VALIDarr, int* FULLarr, int* TYPEarr)
+void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* bpb, int* DIRarr, int* FATarr, int* VALIDarr, int* FULLarr)
 {
     while (is_valid_cluster(cluster, bpb))
     {
@@ -412,7 +410,6 @@ void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* 
 
 		DIRarr[start_cluster] = 1;
 	//	printf("start_cluster %d\n: ", start_cluster);
-//		DIRtype[start_cluster] = get_cluster_type WRITE A CLUSTER TYPE FUNCTION?
 		
 		numClusters = num_of_clust(start_cluster, image_buf, bpb, DIRarr);
 		if (fileSize % 512 == 0){
@@ -426,7 +423,7 @@ void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* 
 
 		if(numClusters > expectedNumClusters){
 	//	      printf("EROR MESSAGE: filesize in metadata is smaller than cluster chain length \n!");
-		      cluster_chain_long(start_cluster, image_buf, bpb, DIRarr, FATarr, VALIDarr, FULLarr, TYPEarr, expectedNumClusters);
+		      cluster_chain_long(start_cluster, image_buf, bpb, DIRarr, FATarr, VALIDarr, FULLarr, expectedNumClusters);
 			// do something
 		      		
 		}
@@ -441,7 +438,7 @@ void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* 
 		}
 	    }
             if (followclust)
-                follow_dir(followclust, indent+1, image_buf, bpb, DIRarr, FATarr, VALIDarr, FULLarr, TYPEarr);
+                follow_dir(followclust, indent+1, image_buf, bpb, DIRarr, FATarr, VALIDarr, FULLarr);
             dirent++;
 	}
 
@@ -452,7 +449,7 @@ void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* 
 
 
 
-void traverse_root(uint8_t *image_buf, struct bpb33* bpb, int* DIRarr, int* FATarr, int* VALIDarr, int* FULLarr, int* TYPEarr)
+void traverse_root(uint8_t *image_buf, struct bpb33* bpb, int* DIRarr, int* FATarr, int* VALIDarr, int* FULLarr)
 {
     uint16_t cluster = 0;
     struct direntry *dirent = (struct direntry*)cluster_to_addr(cluster, image_buf, bpb);
@@ -461,7 +458,7 @@ void traverse_root(uint8_t *image_buf, struct bpb33* bpb, int* DIRarr, int* FATa
     {
         uint16_t followclust = print_dirent(dirent, 0);
         if (is_valid_cluster(followclust, bpb))
-            follow_dir(followclust, 1, image_buf, bpb, DIRarr, FATarr, VALIDarr, FULLarr, TYPEarr);
+            follow_dir(followclust, 1, image_buf, bpb, DIRarr, FATarr, VALIDarr, FULLarr);
 
         dirent++;
     }
@@ -573,7 +570,6 @@ int main(int argc, char** argv) {
     int* DIRarr = malloc(FAT_length*sizeof(int));
     int* VALIDarr = malloc(FAT_length*sizeof(int));
     int* FULLarr = malloc(FAT_length*sizeof(int));
-    int* TYPEarr = malloc(FAT_length*sizeof(int));
     for (int i = 0; i < FAT_length; i++){
 	 FATarr[i] = 0;
 	 DIRarr[i] = 0;
@@ -581,13 +577,12 @@ int main(int argc, char** argv) {
 	 FULLarr[i] = 0;
     } 
 
-    traverse_root(image_buf, bpb, DIRarr, FATarr, VALIDarr, FULLarr, TYPEarr);
+    traverse_root(image_buf, bpb, DIRarr, FATarr, VALIDarr, FULLarr);
     unmmap_file(image_buf, &fd);
     free(FATarr);
     free(DIRarr);
     free(VALIDarr);
     free(FULLarr);
-    free(TYPEarr);
     free(bpb);
     return 0;
 }
