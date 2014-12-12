@@ -43,6 +43,7 @@ int num_of_clust(uint16_t start_cluster, uint8_t *image_buf, struct bpb33* bpb, 
 		nxt_clust = get_fat_entry(nxt_clust, image_buf, bpb);
 		length++;
 	}
+	DIRarr[nxt_clust] = 1;
 //	printf("length: %d\n", length);
 	return length;
 }
@@ -348,23 +349,25 @@ void adoption(struct bpb33* bpb, uint8_t *image_buf, int i, int* DIRarr){
 	char name[128];
 	char num_str[32];
 	strcpy(name, "found");
-	sprintf(num_str, "%d\n", num_orphans);
+	sprintf(num_str, "%d", num_orphans);
 	strcat(name, num_str);
 	strcat(name, ".dat");
-        struct direntry *dirent = (struct direntry*)cluster_to_addr(0, image_buf, bpb);
+        struct direntry *dirent = (struct direntry*)cluster_to_addr(i, image_buf, bpb);
      //create the directory entry 
 	create_dirent(dirent, name, i, 512, image_buf, bpb);
 	DIRarr[i] = 1;
-        set_fat_entry(i, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
+	
+	uint16_t orphan = get_fat_entry(i, image_buf, bpb);
+        set_fat_entry(orphan, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
      //map the directory entry to this cluster
 }
 
 void badFixer(int* VALIDarr,uint8_t *image_buf, struct bpb33* bpb){
       int FAT_length =  bpb->bpbSectors - 1 - 9 - 9 - 14;
       for(int i = 2; i < FAT_length; i++){
-	if (get_fat_entry(i, image_buf, bpb) == CLUST_BAD){
+//	if (get_fat_entry(i, image_buf, bpb) == CLUST_BAD){
 	    
-	}
+//	}
       }
 }
 
@@ -397,9 +400,11 @@ void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* 
 	    uint16_t followclust = print_dirent(dirent, indent);
 	    if ((dirent->deAttributes & ATTR_DIRECTORY) != 0)
 		{
-		    DIRarr[getushort(dirent->deStartCluster)] = 1;
+		    printf("i am a directory");
+		    DIRarr[getushort(dirent->deStartCluster)] = +1;
 		}
 	    if(file_checker(dirent)==1){
+		printf("i am a file");
 	        uint32_t fileSize = 0;
 	        uint16_t start_cluster = 0;
 	        int numClusters = 0;
@@ -575,10 +580,15 @@ int main(int argc, char** argv) {
 	 DIRarr[i] = 0;
 	 VALIDarr[i] = 0;
 	 FULLarr[i] = 0;
-    } 
+    }
 
     traverse_root(image_buf, bpb, DIRarr, FATarr, VALIDarr, FULLarr);
     unmmap_file(image_buf, &fd);
+/*
+    for(int j = 0; j < FAT_length; j++){
+	printf("DIR arr: %d\n", DIRarr[j]);
+} 
+*/
     free(FATarr);
     free(DIRarr);
     free(VALIDarr);
