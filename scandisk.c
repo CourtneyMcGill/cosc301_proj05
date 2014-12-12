@@ -39,18 +39,17 @@ int num_of_clust(uint16_t start_cluster, uint8_t *image_buf, struct bpb33* bpb, 
 	uint16_t previous = start_cluster;
 	DIRarr[start_cluster] = 1;
 	uint16_t nxt_clust = get_fat_entry(start_cluster, image_buf, bpb);
-//	DIRarr[nxt_clust] = 1;
 	while(!is_end_of_file(nxt_clust)){
 		DIRarr[nxt_clust] = 1;
-//		printf("nxt_clust is: %d\n", nxt_clust);
 		nxt_clust = get_fat_entry(nxt_clust, image_buf, bpb);
-	//	DIRarr[nxt_clust] = 1;
+
 		if (nxt_clust == (FAT12_MASK & CLUST_BAD)){
 		    printf("YEAHHHH CLUST BAD, BAD CLUST... and the cluster is\n ");
 		    set_fat_entry(previous, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
 		    set_fat_entry(nxt_clust, (FAT12_MASK & CLUST_FREE), image_buf, bpb);
 		    
 		}
+
 		length++;
 	}
 	DIRarr[nxt_clust] = 1;
@@ -389,9 +388,9 @@ void orphanChecker(int* DIRarr, uint8_t *image_buf, struct bpb33* bpb){
       int j = 0;
       int i;
       for(i = 2; i < FAT_length; i++){
-	   if ((DIRarr[i] == 0) && (is_valid_cluster(i, bpb))){
+	   if ((is_valid_cluster(i, bpb) )&& (DIRarr[i] == 0)){
 		//check that entry in the fat
-		if((get_fat_entry(i, image_buf, bpb))!= CLUST_FREE){ //is this how we test that it is free?
+		if((get_fat_entry(i, image_buf, bpb))!= CLUST_FREE){
                       orphans[j] = i;
 		      j++;
 		      printf("FAT entry: %d is an orphan \n", i);\
@@ -472,19 +471,22 @@ void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* 
 		}
 
 		if(numClusters > expectedNumClusters){
-	//	      printf("EROR MESSAGE: filesize in metadata is smaller than cluster chain length \n!");
+		      printf("EROR MESSAGE: filesize in metadata is smaller than cluster chain length \n!");
+//		     printf("metadata size: %d cluster chain length: %d \n", expectedNumClusters, numClusters);
 		      cluster_chain_long(start_cluster, image_buf, bpb, DIRarr, expectedNumClusters);
 			// do something
 		      		
 		}
 
 		else if(numClusters < expectedNumClusters){
-	//	      printf("EROR MESSAGE: filesize in metadata is larger than cluster chain length \n!");
+		      printf("EROR MESSAGE: filesize in metadata is larger than cluster chain length \n!");
+//		      printf("metadata size: %d cluster chain length: %d \n", expectedNumClusters, numClusters);
 			clust_chain_short(dirent, numClusters);
 		      //do something
 		}
 		else{
-	//	      printf("correct size! \n");
+		      printf("correct size! \n");
+//		      printf("metadata size: %d cluster chain length: %d \n", expectedNumClusters, numClusters);
 		}
 	    }
             if (followclust)
@@ -513,7 +515,7 @@ void traverse_root(uint8_t *image_buf, struct bpb33* bpb, int* DIRarr)
 	}
         dirent++;
     }
-//    orphanChecker(DIRarr, FATarr, image_buf, bpb);
+    orphanChecker(DIRarr, image_buf, bpb);
    // badFixer(image_buf,bpb,0, 0);
 
 }
@@ -623,15 +625,13 @@ int main(int argc, char** argv) {
 	 DIRarr[i] = 0;
     }
     traverse_root(image_buf, bpb, DIRarr);
-    orphanChecker(DIRarr, image_buf, bpb);
-    printf("2800 spot is: %d\n", DIRarr[2800]);
     unmmap_file(image_buf, &fd);
 /*
     for(int j = 0; j < FAT_length; j++){
 	printf("DIR arr: %d\n", DIRarr[j]);
 } 
 */
- //   free(DIRarr);
+   free(DIRarr);
     free(bpb);
     return 0;
 }
