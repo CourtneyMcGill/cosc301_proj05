@@ -17,6 +17,12 @@
 
 int num_orphans = 0;
 
+int numfiles = 0;
+/*
+char *filenames[4000];
+int startclusters[4000];
+*/
+
 void usage(char *progname) {
     fprintf(stderr, "usage: %s <imagename>\n", progname);
     exit(1);
@@ -27,11 +33,100 @@ void print_indent(int indent)
     for (i = 0; i < indent*4; i++)
 	printf(" ");
 }
-/*
-uint8_t metadatasize(struct direntry direct){
-	return direct.deFileSize(direct)[0];
-	}
-*/
+
+//adapted from print_dirent
+//used for our attempt at fixing the duplicates
+uint16_t directory_name(char* new_name, struct direntry *dirent, char **filenames, int* startclusters)
+{
+    uint16_t followclust = 0;
+
+    int i;
+    char name[9];
+    char extension[4];
+//    uint32_t size;
+//    uint16_t file_cluster;
+    name[8] = ' ';
+    extension[3] = ' ';
+    memcpy(name, &(dirent->deName[0]), 8);
+    memcpy(extension, dirent->deExtension, 3);
+    
+
+
+    /* skip over deleted entries */
+    if (((uint8_t)name[0]) == SLOT_DELETED)
+    {
+	return followclust;
+    }
+
+   
+
+    /* names are space padded - remove the spaces */
+    for (i = 8; i > 0; i--) 
+    {
+	if (name[i] == ' ') 
+	    name[i] = '\0';
+	else 
+	    break;
+    }
+
+    /* remove the spaces from extensions */
+    for (i = 3; i > 0; i--) 
+    {
+	if (extension[i] == ' ') 
+	    extension[i] = '\0';
+	else 
+	    break;
+    }
+
+    if ((dirent->deAttributes & ATTR_WIN95LFN) == ATTR_WIN95LFN)
+    {
+	// ignore any long file name extension entries
+	//
+	// printf("Win95 long-filename entry seq 0x%0x\n", dirent->deName[0]);
+    }
+   
+    new_name[0] = '\0';
+
+    if ((dirent->deAttributes & ATTR_DIRECTORY) == 0) 
+    {
+        // don't deal with hidden directories; MacOS makes these
+        // for trash directories and such; just ignore them.
+	if ((dirent->deAttributes & ATTR_HIDDEN) != ATTR_HIDDEN)
+        {
+	    return -1;
+        }
+	strcat(new_name, name);
+        strcat(new_name, ".");
+        strcat(new_name, extension);
+        return 0;
+    }
+   strcat(new_name, name);
+   return 0;
+
+    return followclust;
+}
+
+
+//attempt at fixing a duplicate file
+void duplicateFixer(uint8_t *image_buf, struct bpb33* bpb, char **filenames, int* startclusters){
+     for (int i = 0; i< numfiles; i ++){
+	 for (int j = 0; j< numfiles; j ++){
+	     if(i != j && strcasecmp(filenames[i], filenames[j]) == 0){
+		 
+                 { 
+		     printf("duplicate found");	
+		     char dupName[128];
+		     struct direntry *dirent = (struct direntry*)cluster_to_addr(startclusters[j], image_buf, bpb);
+		     directory_name(dupName, dirent, filenames, startclusters);
+    		     char *p = strchr(dupName, '.');
+    	             strcpy(p, "copy\0"); 
+                     memcpy(dirent->deName, dupName, strlen(dupName));
+		 }
+	     }	
+	 }
+      }
+}
+
 
 //counts and returns the number of cluster used by given file
 int num_of_clust(uint16_t start_cluster, uint8_t *image_buf, struct bpb33* bpb, int* DIRarr){
@@ -44,7 +139,7 @@ int num_of_clust(uint16_t start_cluster, uint8_t *image_buf, struct bpb33* bpb, 
 		nxt_clust = get_fat_entry(nxt_clust, image_buf, bpb);
 
 		if (nxt_clust == (FAT12_MASK & CLUST_BAD)){
-		    printf("YEAHHHH CLUST BAD, BAD CLUST... and the cluster is\n ");
+		    printf("Bad cluster detected! \n ");
 		    set_fat_entry(previous, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
 		    set_fat_entry(nxt_clust, (FAT12_MASK & CLUST_FREE), image_buf, bpb);
 		    
@@ -53,11 +148,10 @@ int num_of_clust(uint16_t start_cluster, uint8_t *image_buf, struct bpb33* bpb, 
 		length++;
 	}
 	DIRarr[nxt_clust] = 1;
-//	printf("length: %d\n", length);
 	return length;
 }
 
-uint16_t print_dirent(struct direntry *dirent, int indent)
+uint16_t print_dirent(struct direntry *dirent, int indent, char **filenames, int* startclusters )
 {
     uint16_t followclust = 0;
 
@@ -147,6 +241,10 @@ uint16_t print_dirent(struct direntry *dirent, int indent)
                hidden?'h':' ', 
                sys?'s':' ', 
                arch?'a':' ');
+	
+	startclusters[numfiles] = dirent->deStartCluster;
+	filenames[numfiles] = name;
+	numfiles++;
     }
 
     return followclust;
@@ -226,7 +324,7 @@ int file_checker(struct direntry *dirent){
    return checker;
 }
 
-//this fixes when the number of clusters in the fat chain exceeds the expected number of clusters 
+//this fixes when the number of clusters in the fat -long exceeds the expected number of clusters 
 void cluster_chain_long(uint16_t start_cluster, uint8_t *image_buf, struct bpb33* bpb,int* DIRarr, uint32_t expectedNumCluster){
 //	printf("entered \n");
 	int current_clust = 1;
@@ -239,7 +337,6 @@ void cluster_chain_long(uint16_t start_cluster, uint8_t *image_buf, struct bpb33
 	     next_clust = get_fat_entry(next_clust,image_buf, bpb);
 	     current_clust++;
 	}
-//	printf("finished itterations \n");
 	//update arrays and free any clusters passed expected number of clusters
 	while(!is_end_of_file(get_fat_entry(next_clust, image_buf, bpb))){
 	     uint16_t temp = next_clust;
@@ -248,13 +345,11 @@ void cluster_chain_long(uint16_t start_cluster, uint8_t *image_buf, struct bpb33
 	     set_fat_entry(temp, CLUST_FREE, image_buf, bpb);
 	}
 	set_fat_entry(prev_clust, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
-//	printf("set new eof \n");
-	DIRarr[prev_clust] = 0;
+	DIRarr[prev_clust] = 1;
 	prev_clust = get_fat_entry(prev_clust, image_buf, bpb);
 	DIRarr[next_clust] = 0;
-//	printf("freedstuff \n");
 	set_fat_entry(next_clust, CLUST_FREE, image_buf, bpb);
-
+	DIRarr[start_cluster] = 1;
 }
 
 // this was shorter than I expected when starting to make the helper function...
@@ -365,8 +460,7 @@ void adoption(struct bpb33* bpb, uint8_t *image_buf, int i, int* DIRarr){
      //create the directory entry 
 	create_dirent(dirent, name, i, 512, image_buf, bpb);
 	DIRarr[i] = 1;
- //	uint16_t orphan = get_fat_entry(i, image_buf, bpb);
-  //      set_fat_entry(orphan, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
+        //set_fat_entry(orphan, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
      //map the directory entry to this cluster
 }
 
@@ -407,27 +501,7 @@ void orphanChecker(int* DIRarr, uint8_t *image_buf, struct bpb33* bpb){
      
 }
 
-/*
-void badFixer(uint8_t *image_buf, struct bpb33* bpb, uint16_t followclust, uint16_t previousclust){
-     struct direntry *dirent = (struct direntry*)cluster_to_addr(followclust, image_buf, bpb);
-     int numDirEntries = (bpb->bpbBytesPerSec * bpb->bpbSecPerClust) / sizeof(struct direntry);
-     int i = 0;
-     for ( ; i < numDirEntries; i++){
-	  if((get_fat_entry(followclust, image_buf, bpb))== (FAT12_MASK & CLUST_BAD)){
-		set_fat_entry(previousclust, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
-		printf("fixed a bad cluster");
-	  }
-	  previousclust = followclust;
-	  uint16_t followclust = print_dirent(dirent, 1);
-	  if(followclust){
-		badFixer(image_buf,bpb, followclust, previousclust);
-	  }
-     }
-}
-*/
-
-
-void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* bpb, int* DIRarr)
+void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* bpb, int* DIRarr, char **filenames, int* startclusters)
 {
     while (is_valid_cluster(cluster, bpb))
     {
@@ -438,27 +512,23 @@ void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* 
         int i = 0;
 	for ( ; i < numDirEntries; i++)
 	{
-	    uint16_t followclust = print_dirent(dirent, indent); //check
-	    if ((dirent->deAttributes & ATTR_DIRECTORY) != 0) //check
+	    uint16_t followclust = print_dirent(dirent, indent, filenames, startclusters);
+	    if ((dirent->deAttributes & ATTR_DIRECTORY) != 0)
 		{
-//		    printf("i am a directory");
 		    DIRarr[getushort(dirent->deStartCluster)] = +1;
 		}
 	    if(is_end_of_file(getushort(dirent->deStartCluster))){
 		DIRarr[getushort(dirent->deStartCluster)] = 1;
 	    }
 	    if(file_checker(dirent)==1){
-//		printf("i am a file");
 	        uint32_t fileSize = 0;
 	        uint16_t start_cluster = 0;
 	        int numClusters = 0;
 		uint32_t expectedNumClusters = 0;
 		fileSize = getulong(dirent->deFileSize);
-//		printf("fileSize: %d\n", fileSize);
 		start_cluster = getushort(dirent->deStartCluster);
 
 		DIRarr[start_cluster] = 1;
-	//	printf("start_cluster %d\n: ", start_cluster);
 		
 		numClusters = num_of_clust(start_cluster, image_buf, bpb, DIRarr);
 		if (fileSize % 512 == 0){
@@ -466,31 +536,25 @@ void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* 
 		}
 
 		else{
-//		    printf("added 1 \n");
 		    expectedNumClusters = (fileSize/512)+1;
 		}
 
 		if(numClusters > expectedNumClusters){
 		      printf("EROR MESSAGE: filesize in metadata is smaller than cluster chain length \n!");
-//		     printf("metadata size: %d cluster chain length: %d \n", expectedNumClusters, numClusters);
 		      cluster_chain_long(start_cluster, image_buf, bpb, DIRarr, expectedNumClusters);
-			// do something
-		      		
+
 		}
 
 		else if(numClusters < expectedNumClusters){
 		      printf("EROR MESSAGE: filesize in metadata is larger than cluster chain length \n!");
-//		      printf("metadata size: %d cluster chain length: %d \n", expectedNumClusters, numClusters);
 			clust_chain_short(dirent, numClusters);
-		      //do something
 		}
 		else{
 		      printf("correct size! \n");
-//		      printf("metadata size: %d cluster chain length: %d \n", expectedNumClusters, numClusters);
 		}
 	    }
             if (followclust)
-                follow_dir(followclust, indent+1, image_buf, bpb, DIRarr);
+                follow_dir(followclust, indent+1, image_buf, bpb, DIRarr, filenames, startclusters);
             dirent++;
 	}
 
@@ -501,22 +565,27 @@ void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* 
 
 
 
-void traverse_root(uint8_t *image_buf, struct bpb33* bpb, int* DIRarr)
+void traverse_root(uint8_t *image_buf, struct bpb33* bpb, int* DIRarr, char **filenames, int* startclusters)
 {
     uint16_t cluster = 0;
     struct direntry *dirent = (struct direntry*)cluster_to_addr(cluster, image_buf, bpb);
     int i = 0;
     for ( ; i < bpb->bpbRootDirEnts; i++)
     {
-        uint16_t followclust = print_dirent(dirent, 0);
-//	DIRarr[followclust] =1;
+        uint16_t followclust = print_dirent(dirent, 0, filenames, startclusters);
+	if (followclust== (4088)){	
+		printf("end of file found\n");
+		DIRarr[getushort(dirent->deStartCluster)] = 1;
+	}
+
         if (is_valid_cluster(followclust, bpb)){
-            follow_dir(followclust, 1, image_buf, bpb, DIRarr);
+            follow_dir(followclust, 1, image_buf, bpb, DIRarr, filenames, startclusters);
 	}
         dirent++;
     }
     orphanChecker(DIRarr, image_buf, bpb);
-   // badFixer(image_buf,bpb,0, 0);
+   // duplicateFixer(image_buf, bpb, filenames, startclusters);
+
 
 }
 
@@ -621,16 +690,15 @@ int main(int argc, char** argv) {
     // your code should start here...
 
     int* DIRarr = malloc(FAT_length*sizeof(int));
+    char **filenames = malloc(1000*sizeof(char*));
+    int* startclusters = malloc(1000*sizeof(int));
     for (int i = 0; i < FAT_length; i++){
 	 DIRarr[i] = 0;
+
     }
-    traverse_root(image_buf, bpb, DIRarr);
+    traverse_root(image_buf, bpb, DIRarr, filenames, startclusters);
     unmmap_file(image_buf, &fd);
-/*
-    for(int j = 0; j < FAT_length; j++){
-	printf("DIR arr: %d\n", DIRarr[j]);
-} 
-*/
+
    free(DIRarr);
     free(bpb);
     return 0;
