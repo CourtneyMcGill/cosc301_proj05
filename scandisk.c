@@ -708,5 +708,7 @@ int main(int argc, char** argv) {
 
    free(DIRarr);
     free(bpb);
+    free(filenames);
+    free(startclusters);
     return 0;
 }
