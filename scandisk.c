@@ -1,3 +1,11 @@
+/*
+    
+  Courtney McGill and Parker Reynolds
+
+
+*/
+
+
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -43,8 +51,6 @@ uint16_t directory_name(char* new_name, struct direntry *dirent, char **filename
     int i;
     char name[9];
     char extension[4];
-//    uint32_t size;
-//    uint16_t file_cluster;
     name[8] = ' ';
     extension[3] = ' ';
     memcpy(name, &(dirent->deName[0]), 8);
@@ -460,6 +466,7 @@ void adoption(struct bpb33* bpb, uint8_t *image_buf, int i, int* DIRarr){
      //create the directory entry 
 	create_dirent(dirent, name, i, 512, image_buf, bpb);
 	DIRarr[i] = 1;
+	DIRarr[getushort(dirent->deStartCluster)] = 1;
         //set_fat_entry(orphan, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
      //map the directory entry to this cluster
 }
@@ -487,8 +494,7 @@ void orphanChecker(int* DIRarr, uint8_t *image_buf, struct bpb33* bpb){
 		if((get_fat_entry(i, image_buf, bpb))!= CLUST_FREE){
                       orphans[j] = i;
 		      j++;
-		      printf("FAT entry: %d is an orphan \n", i);\
-		      
+		      printf("FAT entry: %d is an orphan \n", i);
 		}
 	   }
      }
@@ -513,12 +519,11 @@ void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* 
 	for ( ; i < numDirEntries; i++)
 	{
 	    uint16_t followclust = print_dirent(dirent, indent, filenames, startclusters);
-	    if ((dirent->deAttributes & ATTR_DIRECTORY) != 0)
-		{
-		    DIRarr[getushort(dirent->deStartCluster)] = +1;
+	    if ((dirent->deAttributes & ATTR_DIRECTORY) != 0){
+		    DIRarr[getushort(dirent->deStartCluster)] = 1;
 		}
 	    if(is_end_of_file(getushort(dirent->deStartCluster))){
-		DIRarr[getushort(dirent->deStartCluster)] = 1;
+		DIRarr[getushort(dirent->deStartCluster)] = 1; // file of size uno
 	    }
 	    if(file_checker(dirent)==1){
 	        uint32_t fileSize = 0;
@@ -573,13 +578,15 @@ void traverse_root(uint8_t *image_buf, struct bpb33* bpb, int* DIRarr, char **fi
     for ( ; i < bpb->bpbRootDirEnts; i++)
     {
         uint16_t followclust = print_dirent(dirent, 0, filenames, startclusters);
-	if (followclust== (4088)){	
-		printf("end of file found\n");
-		DIRarr[getushort(dirent->deStartCluster)] = 1;
-	}
 
+	if (is_end_of_file(get_fat_entry(getushort(dirent->deStartCluster), image_buf, bpb))){
+	    DIRarr[(getushort(dirent->deStartCluster))] = 1;
+	}
         if (is_valid_cluster(followclust, bpb)){
             follow_dir(followclust, 1, image_buf, bpb, DIRarr, filenames, startclusters);
+	}
+	else if(is_valid_cluster(followclust-1, bpb)){
+		DIRarr[getushort(dirent->deStartCluster)] =1;
 	}
         dirent++;
     }
@@ -689,10 +696,10 @@ int main(int argc, char** argv) {
 
     // your code should start here...
 
-    int* DIRarr = malloc(FAT_length*sizeof(int));
-    char **filenames = malloc(1000*sizeof(char*));
-    int* startclusters = malloc(1000*sizeof(int));
-    for (int i = 0; i < FAT_length; i++){
+    int* DIRarr = malloc(FAT_length*sizeof(int)); //stores 1s and 0s to say if in directory
+    char **filenames = malloc(1000*sizeof(char*)); // holds file names for duplicate checking
+    int* startclusters = malloc(1000*sizeof(int)); // holds the starting clusters for 							      duplicate checking
+    for (int i = 0; i < FAT_length; i++){	   // initialize all the spots to 0 for not in 								directory
 	 DIRarr[i] = 0;
 
     }
